@@ -25,6 +25,8 @@ public class ImagesController {
         log.info("IMAGEM RECEBIDA: NAME {},SIZE {}", file.getOriginalFilename(), file.getSize());
         log.info("NOME DEFINIDO PARA A IMAGEM: {}",name);
         log.info("TAGS: {}", tags);
+
+
         return ResponseEntity.ok().build();
     }
 }
