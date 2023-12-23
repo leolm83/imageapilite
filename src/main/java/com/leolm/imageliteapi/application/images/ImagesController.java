@@ -5,16 +5,18 @@ import com.leolm.imageliteapi.domain.entity.Image;
 import com.leolm.imageliteapi.domain.enums.ImageExtension;
 import com.leolm.imageliteapi.domain.service.ImageService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.util.UriBuilder;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/v1/images")
@@ -38,14 +40,63 @@ public class ImagesController {
         log.info("TAGS: {}", tags);
         log.info("CONTENT TYPE {}",file.getContentType());
         log.info("MEDIA TYPE {}",MediaType.valueOf(file.getContentType()));
-        Image image = new Image().builder()
-                .name(name)
-                .tags(String.join(",",tags))
-                .size(file.getSize())
-                .extension(ImageExtension.valueOf(MediaType.valueOf(file.getContentType())))
-                .file(file.getBytes())
-                .build();
-        imageService.save(image);
-        return ResponseEntity.ok().build();
+        Image image = ImageMapper.mapToImage(file,name,tags);
+        Image savedImage = imageService.save(image);
+        URI imageURI = buildImageURL(savedImage);
+
+        return ResponseEntity.created(imageURI).build();
+    }
+
+    @GetMapping("{id}")
+    public ResponseEntity<byte[]> getImage(@PathVariable("id") UUID id){
+        Optional<Image> possibleImage = imageService.findById(id);
+        if(possibleImage.isEmpty()){
+            return  ResponseEntity.notFound().build();
+        }
+        Image image = possibleImage.get();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(image.getExtension().getMediaType());
+        headers.setContentLength(image.getSize());
+        log.info("CONTENT DISPOSITION {}",ContentDisposition.inline().filename(image.getFileFullName()).build());
+        ContentDisposition contentDisposition = ContentDisposition.inline().filename(image.getFileFullName()).build();
+        headers.setContentDisposition(contentDisposition);
+        return new ResponseEntity<>(image.getFile(),headers, HttpStatus.OK);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<ImageDTO>> search(
+            @RequestParam(value = "extension", required = false) String extension,
+            @RequestParam(value = "query", required = false) String query){
+
+        log.info("EXTENSÃO {} | QUERY {}",extension,query);
+        List<Image> result = imageService.search(ImageExtension.valueOfOrNull(extension), query);
+        List<ImageDTO> images = result.stream().map(image -> {
+
+            return  ImageMapper.imageToDTO(image, buildImageURL(image).toString());
+
+        }).collect(Collectors.toList());
+        return  ResponseEntity.ok(images);
+    }
+
+
+    @GetMapping("download/{id}")
+    public ResponseEntity<byte[]> downloadImage(@PathVariable("id") UUID id){
+        Optional<Image> possibleImage = imageService.findById(id);
+        if(possibleImage.isEmpty()){
+            return  ResponseEntity.notFound().build();
+        }
+        Image image = possibleImage.get();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(image.getExtension().getMediaType());
+        headers.setContentLength(image.getSize());
+        log.info("CONTENT DISPOSITION {}",ContentDisposition.formData().filename(image.getFileFullName()).build());
+        ContentDisposition contentDisposition = ContentDisposition.formData().filename(image.getFileFullName()).build();
+        headers.setContentDisposition(contentDisposition);
+        return new ResponseEntity<>(image.getFile(),headers, HttpStatus.OK);
+    }
+
+    private URI buildImageURL(Image image){
+        String imagePath = "/"+image.getId();
+        return ServletUriComponentsBuilder.fromCurrentRequestUri().path(imagePath).build().toUri();
     }
 }
